@@ -162,7 +162,7 @@ Enable developer console to view debug logs:
 
 ## License
 
-ISC License
+Copyright (C) 2020-2025 by Dynalist Inc.
 
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
 
