@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-reading-mode-highlighter",
 	"name": "Reading Mode Highlighter",
-	"version": "1.0.0",
+	"version": "1.2.0",
 	"minAppVersion": "0.15.0",
 	"description": "Highlight selected text in reading mode via the right-click menu or a keyboard shortcut.",
 	"author": "13byte",
