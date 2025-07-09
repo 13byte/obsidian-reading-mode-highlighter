@@ -174,4 +174,4 @@ Created by [13byte](https://github.com/13byte)
 
 ---
 
-**Note**: This plugin provides advanced position-aware highlighting capabilities with enterprise-grade performance optimizations, making it suitable for professional knowledge management workflows.
+**Note**: This plugin focuses on accurate text highlighting without visual disruptions, especially useful when working with documents containing repeated text phrases.
