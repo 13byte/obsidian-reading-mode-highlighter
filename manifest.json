@@ -3,7 +3,7 @@
 	"name": "Reading Mode Highlighter",
 	"version": "1.2.0",
 	"minAppVersion": "0.15.0",
-	"description": "Highlight selected text in reading mode via the right-click menu or a keyboard shortcut.",
+	"description": "Highlight selected text in reading mode without visual transitions.",
 	"author": "13byte",
 	"authorUrl": "https://github.com/13byte",
 	"isDesktopOnly": false
