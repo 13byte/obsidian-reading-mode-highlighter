@@ -287,6 +287,9 @@ export default class ReadingModeHighlighter extends Plugin {
 	// LOW FIX: Debug mode toggle for conditional logging
 	private static debugMode: boolean = false;
 
+	// Floating button element for reading mode
+	private floatingButton: HTMLElement | null = null;
+
 	// LOW FIX: Properly implemented performance metrics
 	private static readonly performanceMetrics = {
 		highlightOperations: 0,
@@ -353,34 +356,11 @@ export default class ReadingModeHighlighter extends Plugin {
 			})
 		);
 
-		// Context menu for reading mode (right-click / long-press on mobile)
-		this.registerDomEvent(document, 'contextmenu', (evt: MouseEvent) => {
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!activeView || activeView.getMode() !== 'preview') {
-				return;
-			}
-
-			const selection = window.getSelection();
-			if (!selection?.toString().trim()) {
-				return;
-			}
-
-			const menu = new Menu();
-			menu.addItem((item) => {
-				item
-					.setTitle('Toggle highlight')
-					.setIcon('highlighter')
-					.onClick(() => {
-						this.handleReadingModeOptimized(activeView);
-					});
-			});
-
-			menu.showAtMouseEvent(evt);
-			evt.preventDefault();
-		});
+		// Floating highlight button for reading mode
+		this.setupFloatingButton();
 
 		// Clear caches periodically to prevent memory leaks
-		this.registerInterval(setInterval(() => {
+		this.registerInterval(window.setInterval(() => {
 			RegexCache.clearCache();
 			ContextProcessor.clearCache();
 			HighlightDetector.clearCache();
@@ -778,7 +758,103 @@ Cache Misses: ${metrics.cacheMisses}`;
 		}
 	}
 
+	private setupFloatingButton(): void {
+		// Create floating button element
+		this.floatingButton = document.createElement('div');
+		this.floatingButton.addClass('highlight-floating-button');
+		this.floatingButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>`;
+		this.floatingButton.style.display = 'none';
+		document.body.appendChild(this.floatingButton);
+
+		// Button click handler
+		this.floatingButton.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (activeView && activeView.getMode() === 'preview') {
+				this.handleReadingModeOptimized(activeView);
+			}
+			this.hideFloatingButton();
+		});
+
+		// Show button on text selection (mouseup)
+		this.registerDomEvent(document, 'mouseup', (evt: MouseEvent) => {
+			// Small delay to let selection complete
+			setTimeout(() => this.handleSelectionChange(evt), 10);
+		});
+
+		// Hide button when clicking elsewhere
+		this.registerDomEvent(document, 'mousedown', (evt: MouseEvent) => {
+			if (this.floatingButton && !this.floatingButton.contains(evt.target as Node)) {
+				this.hideFloatingButton();
+			}
+		});
+
+		// Handle touch events for mobile
+		this.registerDomEvent(document, 'touchend', (evt: TouchEvent) => {
+			setTimeout(() => {
+				const touch = evt.changedTouches[0];
+				if (touch) {
+					this.handleSelectionChange({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
+				}
+			}, 300); // Longer delay for mobile selection
+		});
+	}
+
+	private handleSelectionChange(evt: MouseEvent): void {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView || activeView.getMode() !== 'preview') {
+			return;
+		}
+
+		const selection = window.getSelection();
+		const selectedText = selection?.toString().trim();
+
+		if (!selectedText || !selection?.rangeCount) {
+			this.hideFloatingButton();
+			return;
+		}
+
+		// Get selection bounds
+		const range = selection.getRangeAt(0);
+		const rect = range.getBoundingClientRect();
+
+		// Position button above the selection
+		this.showFloatingButton(rect.left + rect.width / 2, rect.top - 10);
+	}
+
+	private showFloatingButton(x: number, y: number): void {
+		if (!this.floatingButton) return;
+
+		// Adjust position to keep button in viewport
+		const buttonWidth = 32;
+		const buttonHeight = 32;
+
+		let posX = x - buttonWidth / 2;
+		let posY = y - buttonHeight;
+
+		// Keep within viewport bounds
+		posX = Math.max(8, Math.min(posX, window.innerWidth - buttonWidth - 8));
+		posY = Math.max(8, posY);
+
+		this.floatingButton.style.left = `${posX}px`;
+		this.floatingButton.style.top = `${posY}px`;
+		this.floatingButton.style.display = 'flex';
+	}
+
+	private hideFloatingButton(): void {
+		if (this.floatingButton) {
+			this.floatingButton.style.display = 'none';
+		}
+	}
+
 	onunload(): void {
+		// Remove floating button
+		if (this.floatingButton) {
+			this.floatingButton.remove();
+			this.floatingButton = null;
+		}
+
 		// Clear all caches on plugin unload
 		RegexCache.clearCache();
 		ContextProcessor.clearCache();

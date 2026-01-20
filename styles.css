@@ -1,12 +1,40 @@
 /*
-
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-If your plugin does not need CSS, delete this file.
-
-*/
+ * Reading Mode Highlighter Styles
+ */
 
 .markdown-reading-view mark {
-  background-color: var(--text-highlight-bg);
+	background-color: var(--text-highlight-bg);
+}
+
+/* Floating highlight button */
+.highlight-floating-button {
+	position: fixed;
+	z-index: 9999;
+	width: 32px;
+	height: 32px;
+	border-radius: 6px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+	transition: transform 0.1s ease, background-color 0.1s ease;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.highlight-floating-button:hover {
+	background-color: var(--interactive-accent-hover);
+	transform: scale(1.1);
+}
+
+.highlight-floating-button:active {
+	transform: scale(0.95);
+}
+
+.highlight-floating-button svg {
+	width: 16px;
+	height: 16px;
 }
