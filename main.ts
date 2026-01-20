@@ -1,5 +1,5 @@
 
-import { MarkdownView, Plugin, Notice, Editor, TFile } from 'obsidian';
+import { MarkdownView, Plugin, Notice, Editor, TFile, Menu } from 'obsidian';
 
 // ============================================================
 // LRU Cache Implementation (MEDIUM Fix: Unbounded Cache Growth)
@@ -334,6 +334,49 @@ export default class ReadingModeHighlighter extends Plugin {
 
 		this.addRibbonIcon('highlighter', 'Toggle highlight on selected text', () => {
 			this.executeHighlightCommand();
+		});
+
+		// Context menu for editing mode (right-click / long-press on mobile)
+		this.registerEvent(
+			this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor) => {
+				const selection = editor.getSelection();
+				if (selection?.trim()) {
+					menu.addItem((item) => {
+						item
+							.setTitle('Toggle highlight')
+							.setIcon('highlighter')
+							.onClick(() => {
+								this.handleEditingModeOptimized(editor);
+							});
+					});
+				}
+			})
+		);
+
+		// Context menu for reading mode (right-click / long-press on mobile)
+		this.registerDomEvent(document, 'contextmenu', (evt: MouseEvent) => {
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!activeView || activeView.getMode() !== 'preview') {
+				return;
+			}
+
+			const selection = window.getSelection();
+			if (!selection?.toString().trim()) {
+				return;
+			}
+
+			const menu = new Menu();
+			menu.addItem((item) => {
+				item
+					.setTitle('Toggle highlight')
+					.setIcon('highlighter')
+					.onClick(() => {
+						this.handleReadingModeOptimized(activeView);
+					});
+			});
+
+			menu.showAtMouseEvent(evt);
+			evt.preventDefault();
 		});
 
 		// Clear caches periodically to prevent memory leaks
