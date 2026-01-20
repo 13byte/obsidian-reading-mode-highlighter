@@ -1,9 +1,5 @@
-
 import { MarkdownView, Plugin, Notice, Editor, TFile, Menu } from 'obsidian';
 
-// ============================================================
-// LRU Cache Implementation (MEDIUM Fix: Unbounded Cache Growth)
-// ============================================================
 class LRUCache<K, V> {
 	private cache: Map<K, V>;
 	private readonly maxSize: number;
@@ -17,7 +13,6 @@ class LRUCache<K, V> {
 		if (!this.cache.has(key)) {
 			return undefined;
 		}
-		// Move to end (most recently used)
 		const value = this.cache.get(key)!;
 		this.cache.delete(key);
 		this.cache.set(key, value);
@@ -25,11 +20,9 @@ class LRUCache<K, V> {
 	}
 
 	set(key: K, value: V): void {
-		// Delete if exists (to re-insert at end)
 		if (this.cache.has(key)) {
 			this.cache.delete(key);
 		}
-		// Evict oldest if at capacity
 		else if (this.cache.size >= this.maxSize) {
 			const firstKey = this.cache.keys().next().value;
 			if (firstKey !== undefined) {
@@ -52,9 +45,6 @@ class LRUCache<K, V> {
 	}
 }
 
-// ============================================================
-// Configuration Interfaces
-// ============================================================
 interface ContextConfig {
 	readonly defaultContextLength: number;
 	readonly useWordBoundaries: boolean;
@@ -75,10 +65,6 @@ interface ToggleResult {
 	readonly error?: string;
 }
 
-// ============================================================
-// RegexCache - Flyweight Pattern with LRU Eviction
-// CRITICAL Fix: Reset lastIndex to prevent state pollution
-// ============================================================
 class RegexCache {
 	private static readonly cache = new LRUCache<string, RegExp>(500);
 	private static readonly escapeCache = new LRUCache<string, string>(500);
@@ -101,13 +87,12 @@ class RegexCache {
 		return escaped;
 	}
 
-	// CRITICAL FIX: Reset lastIndex before returning cached regex
 	static getRegex(pattern: string, flags: string = 'g'): RegExp {
 		const key = `${pattern}:${flags}`;
 		const cached = this.cache.get(key);
 		if (cached !== undefined) {
 			this.metricsTracker?.(true);
-			cached.lastIndex = 0; // CRITICAL: Reset state to prevent pollution
+			cached.lastIndex = 0;
 			return cached;
 		}
 
@@ -123,11 +108,6 @@ class RegexCache {
 	}
 }
 
-// ============================================================
-// ContextProcessor - Memoization with LRU Cache
-// CRITICAL Fix: Include filePath in cache key
-// MEDIUM Fix: Adaptive context length with word boundaries
-// ============================================================
 class ContextProcessor {
 	private static readonly contextCache = new LRUCache<string, PositionInfo>(500);
 	private static config: ContextConfig = {
@@ -141,7 +121,6 @@ class ContextProcessor {
 		this.config = { ...this.config, ...config };
 	}
 
-	// CRITICAL FIX: Added filePath parameter to prevent cross-file cache pollution
 	static processContext(range: Range, selectedText: string, filePath: string): PositionInfo | null {
 		const cacheKey = `${filePath}:${selectedText}:${range.startOffset}:${range.endOffset}`;
 
@@ -157,7 +136,6 @@ class ContextProcessor {
 			const startOffset = range.startOffset;
 			const endOffset = range.endOffset;
 
-			// MEDIUM FIX: Adaptive context length based on selection size
 			const selectionLength = selectedText.length;
 			let contextLength = this.config.defaultContextLength;
 
@@ -170,7 +148,6 @@ class ContextProcessor {
 			let beforeStart = Math.max(0, startOffset - contextLength);
 			let afterEnd = Math.min(textContent.length, endOffset + contextLength);
 
-			// MEDIUM FIX: Adjust to word boundaries if enabled
 			if (this.config.useWordBoundaries) {
 				while (beforeStart > 0 && beforeStart < startOffset && !/\s/.test(textContent[beforeStart - 1])) {
 					beforeStart--;
@@ -183,8 +160,6 @@ class ContextProcessor {
 			const contextBefore = textContent.substring(beforeStart, startOffset);
 			const contextAfter = textContent.substring(endOffset, afterEnd);
 
-			// Line number detection with improved null safety
-			// Note: Obsidian's data-line attribute is 0-indexed (first line = 0)
 			let lineNumber: number | undefined;
 			let element = range.startContainer?.parentElement ?? null;
 
@@ -192,7 +167,6 @@ class ContextProcessor {
 				const lineAttr = element.getAttribute('data-line');
 				if (lineAttr) {
 					const parsed = parseInt(lineAttr, 10);
-					// LOW FIX: Validate parsed line number
 					if (!isNaN(parsed) && parsed >= 0) {
 						lineNumber = parsed;
 					}
@@ -225,14 +199,9 @@ class ContextProcessor {
 	}
 }
 
-// ============================================================
-// HighlightDetector - File-based Detection with LRU Cache
-// CRITICAL Fix: Include filePath in cache key
-// ============================================================
 class HighlightDetector {
 	private static readonly detectionCache = new LRUCache<string, boolean>(500);
 
-	// CRITICAL FIX: Added filePath parameter to prevent cross-file cache pollution
 	static isHighlighted(
 		content: string,
 		selectedText: string,
@@ -249,7 +218,6 @@ class HighlightDetector {
 		const highlightedVersion = `==${selectedText}==`;
 		let isHighlighted = false;
 
-		// Strategy 1: Exact context matching
 		const escapedBefore = RegexCache.getEscapedText(positionInfo.contextBefore);
 		const escapedHighlighted = RegexCache.getEscapedText(highlightedVersion);
 		const escapedAfter = RegexCache.getEscapedText(positionInfo.contextAfter);
@@ -260,12 +228,9 @@ class HighlightDetector {
 		if (exactRegex.test(content)) {
 			isHighlighted = true;
 		} else if (positionInfo.lineNumber !== undefined) {
-			// Strategy 2: Line-based detection
-			// HIGH FIX: lineNumber from data-line is 0-indexed, matching array indices
 			const lines = content.split('\n');
 			const lineIndex = positionInfo.lineNumber;
 
-			// HIGH FIX: Validate line index is an integer and within bounds
 			if (Number.isInteger(lineIndex) && lineIndex >= 0 && lineIndex < lines.length) {
 				isHighlighted = lines[lineIndex].includes(highlightedVersion);
 			}
@@ -280,17 +245,10 @@ class HighlightDetector {
 	}
 }
 
-// ============================================================
-// Main Plugin Class
-// ============================================================
 export default class ReadingModeHighlighter extends Plugin {
-	// LOW FIX: Debug mode toggle for conditional logging
 	private static debugMode: boolean = false;
-
-	// Floating button element for reading mode
 	private floatingButton: HTMLElement | null = null;
 
-	// LOW FIX: Properly implemented performance metrics
 	private static readonly performanceMetrics = {
 		highlightOperations: 0,
 		averageProcessingTime: 0,
@@ -303,7 +261,6 @@ export default class ReadingModeHighlighter extends Plugin {
 	};
 
 	async onload() {
-		// Set up cache metrics tracking
 		RegexCache.setMetricsTracker((hit: boolean) => {
 			if (hit) {
 				ReadingModeHighlighter.performanceMetrics.cacheHits++;
@@ -318,14 +275,12 @@ export default class ReadingModeHighlighter extends Plugin {
 			callback: () => this.executeHighlightCommand()
 		});
 
-		// LOW FIX: Command to view performance metrics
 		this.addCommand({
 			id: 'show-performance-metrics',
 			name: 'Show performance metrics',
 			callback: () => this.showPerformanceMetrics()
 		});
 
-		// LOW FIX: Command to toggle debug mode
 		this.addCommand({
 			id: 'toggle-debug-mode',
 			name: 'Toggle debug mode',
@@ -339,7 +294,6 @@ export default class ReadingModeHighlighter extends Plugin {
 			this.executeHighlightCommand();
 		});
 
-		// Context menu for editing mode (right-click / long-press on mobile)
 		this.registerEvent(
 			this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor) => {
 				const selection = editor.getSelection();
@@ -356,15 +310,13 @@ export default class ReadingModeHighlighter extends Plugin {
 			})
 		);
 
-		// Floating highlight button for reading mode
 		this.setupFloatingButton();
 
-		// Clear caches periodically to prevent memory leaks
 		this.registerInterval(window.setInterval(() => {
 			RegexCache.clearCache();
 			ContextProcessor.clearCache();
 			HighlightDetector.clearCache();
-		}, 300000)); // Every 5 minutes
+		}, 300000));
 	}
 
 	private executeHighlightCommand(): void {
@@ -404,7 +356,6 @@ export default class ReadingModeHighlighter extends Plugin {
 			return;
 		}
 
-		// MEDIUM FIX: Better whitespace handling
 		const rawSelection = selection.toString();
 		const selectedText = rawSelection.trim();
 		if (!selectedText) {
@@ -422,7 +373,6 @@ export default class ReadingModeHighlighter extends Plugin {
 
 		try {
 			const range = selection.getRangeAt(0);
-			// CRITICAL FIX: Pass file path to prevent cache pollution
 			const positionInfo = ContextProcessor.processContext(range, selectedText, file.path);
 
 			if (!positionInfo) {
@@ -431,13 +381,10 @@ export default class ReadingModeHighlighter extends Plugin {
 			}
 
 			const content = await this.app.vault.read(file);
-			// CRITICAL FIX: Capture modification time for race condition prevention
 			const initialMtime = file.stat.mtime;
 
-			// CRITICAL FIX: Pass file path to detection
 			const isHighlighted = HighlightDetector.isHighlighted(content, selectedText, positionInfo, file.path);
 
-			// LOW FIX: Conditional debug logging
 			if (ReadingModeHighlighter.debugMode) {
 				console.log(`[ReadingModeHighlighter] Selected: "${selectedText}"`);
 				console.log(`[ReadingModeHighlighter] File-based highlight status: ${isHighlighted}`);
@@ -446,13 +393,11 @@ export default class ReadingModeHighlighter extends Plugin {
 			const result = this.processHighlightToggle(content, selectedText, positionInfo, isHighlighted);
 
 			if (result.success && result.newContent) {
-				// CRITICAL FIX: Check file hasn't been modified before writing
 				const currentFile = this.app.vault.getAbstractFileByPath(file.path);
 				if (currentFile instanceof TFile && currentFile.stat.mtime === initialMtime) {
 					await this.app.vault.modify(file, result.newContent);
 					new Notice(`Highlight ${result.action}.`);
 
-					// LOW FIX: Null check for previewMode
 					if (view.previewMode) {
 						view.previewMode.rerender();
 					}
@@ -482,8 +427,6 @@ export default class ReadingModeHighlighter extends Plugin {
 		return this.addHighlightOptimized(content, selectedText, positionInfo);
 	}
 
-	// HIGH FIX: Use substring concatenation instead of replace to avoid $ character issues
-	// and ensure exact position replacement
 	private addHighlightOptimized(
 		content: string,
 		selectedText: string,
@@ -491,7 +434,6 @@ export default class ReadingModeHighlighter extends Plugin {
 	): ToggleResult {
 		const highlightedVersion = `==${selectedText}==`;
 
-		// Strategy 1: Context-based matching (most accurate)
 		const escapedBefore = RegexCache.getEscapedText(positionInfo.contextBefore);
 		const escapedText = RegexCache.getEscapedText(selectedText);
 		const escapedHighlighted = RegexCache.getEscapedText(highlightedVersion);
@@ -507,8 +449,6 @@ export default class ReadingModeHighlighter extends Plugin {
 				`${positionInfo.contextBefore}${selectedText}${positionInfo.contextAfter}` :
 				`${positionInfo.contextBefore}${highlightedVersion}${positionInfo.contextAfter}`;
 
-			// HIGH FIX: Use substring concatenation for exact position replacement
-			// This avoids $ character interpretation issues
 			const matchIndex = match.index;
 			const matchLength = match[0].length;
 			const newContent = content.substring(0, matchIndex) + replacement + content.substring(matchIndex + matchLength);
@@ -517,18 +457,15 @@ export default class ReadingModeHighlighter extends Plugin {
 			return Object.freeze({ success: true, newContent, action });
 		}
 
-		// Strategy 2: Line-based matching (fallback)
 		if (positionInfo.lineNumber !== undefined) {
 			const lines = content.split('\n');
 			const lineIndex = positionInfo.lineNumber;
 
-			// HIGH FIX: Validate line index
 			if (Number.isInteger(lineIndex) && lineIndex >= 0 && lineIndex < lines.length) {
 				const line = lines[lineIndex];
 				const textIndex = line.indexOf(selectedText);
 
 				if (textIndex !== -1) {
-					// HIGH FIX: Use substring concatenation to replace at exact position
 					lines[lineIndex] = line.substring(0, textIndex) + highlightedVersion + line.substring(textIndex + selectedText.length);
 					return Object.freeze({
 						success: true,
@@ -539,7 +476,6 @@ export default class ReadingModeHighlighter extends Plugin {
 			}
 		}
 
-		// Strategy 3: Safe global matching with improved detection
 		const globalTextRegex = RegexCache.getRegex(escapedText);
 		const globalHighlightedRegex = RegexCache.getRegex(escapedHighlighted);
 
@@ -550,9 +486,7 @@ export default class ReadingModeHighlighter extends Plugin {
 		const highlightedCount = allHighlightedMatches?.length || 0;
 		const totalInstances = plainTextCount + highlightedCount;
 
-		// CRITICAL FIX: Only proceed if there's exactly one plain text instance
 		if (plainTextCount === 1 && totalInstances === 1) {
-			// HIGH FIX: Use function replacer to avoid $ character issues
 			const newContent = content.replace(globalTextRegex, () => highlightedVersion);
 			return Object.freeze({ success: true, newContent, action: "added" });
 		}
@@ -572,7 +506,6 @@ export default class ReadingModeHighlighter extends Plugin {
 	): ToggleResult {
 		const highlightedVersion = `==${selectedText}==`;
 
-		// Strategy 1: Exact pattern with context
 		const escapedBefore = RegexCache.getEscapedText(positionInfo.contextBefore);
 		const escapedHighlighted = RegexCache.getEscapedText(highlightedVersion);
 		const escapedAfter = RegexCache.getEscapedText(positionInfo.contextAfter);
@@ -583,25 +516,21 @@ export default class ReadingModeHighlighter extends Plugin {
 		const exactMatch = exactRegex.exec(content);
 		if (exactMatch) {
 			const replacement = `${positionInfo.contextBefore}${selectedText}${positionInfo.contextAfter}`;
-			// HIGH FIX: Use substring concatenation for exact position replacement
 			const matchIndex = exactMatch.index;
 			const matchLength = exactMatch[0].length;
 			const newContent = content.substring(0, matchIndex) + replacement + content.substring(matchIndex + matchLength);
 			return Object.freeze({ success: true, newContent, action: "removed" });
 		}
 
-		// Strategy 2: Line-based removal
 		if (positionInfo.lineNumber !== undefined) {
 			const lines = content.split('\n');
 			const lineIndex = positionInfo.lineNumber;
 
-			// HIGH FIX: Validate line index
 			if (Number.isInteger(lineIndex) && lineIndex >= 0 && lineIndex < lines.length) {
 				const line = lines[lineIndex];
 				const highlightIndex = line.indexOf(highlightedVersion);
 
 				if (highlightIndex !== -1) {
-					// HIGH FIX: Use substring concatenation
 					lines[lineIndex] = line.substring(0, highlightIndex) + selectedText + line.substring(highlightIndex + highlightedVersion.length);
 					return Object.freeze({
 						success: true,
@@ -612,12 +541,10 @@ export default class ReadingModeHighlighter extends Plugin {
 			}
 		}
 
-		// Strategy 3: Safe global removal
 		const globalHighlightedRegex = RegexCache.getRegex(escapedHighlighted);
 		const allHighlightedMatches = content.match(globalHighlightedRegex);
 
 		if (allHighlightedMatches?.length === 1) {
-			// HIGH FIX: Use function replacer to avoid $ character issues
 			const newContent = content.replace(globalHighlightedRegex, () => selectedText);
 			return Object.freeze({ success: true, newContent, action: "removed" });
 		}
@@ -628,12 +555,10 @@ export default class ReadingModeHighlighter extends Plugin {
 		});
 	}
 
-	// HIGH FIX: Support for multi-line selections
 	private handleEditingModeOptimized(editor: Editor): void {
 		const rawSelection = editor.getSelection();
 		const selection = rawSelection.trim();
 
-		// MEDIUM FIX: Better empty selection handling
 		if (!selection) {
 			new Notice(rawSelection.length > 0 ?
 				"Cannot highlight whitespace-only text." :
@@ -644,7 +569,6 @@ export default class ReadingModeHighlighter extends Plugin {
 		const selectionStart = editor.getCursor("from");
 		const selectionEnd = editor.getCursor("to");
 
-		// HIGH FIX: Detect multi-line selection
 		const isMultiLine = selectionStart.line !== selectionEnd.line;
 
 		if (isMultiLine) {
@@ -654,7 +578,6 @@ export default class ReadingModeHighlighter extends Plugin {
 		}
 	}
 
-	// HIGH FIX: Extracted single-line handling
 	private handleSingleLineHighlight(
 		editor: Editor,
 		selection: string,
@@ -670,45 +593,37 @@ export default class ReadingModeHighlighter extends Plugin {
 		const afterMarker = line.substring(selectionEnd.ch, afterEndPos);
 
 		if (beforeMarker === '==' && afterMarker === '==') {
-			// Remove highlight by extending selection
 			const newFrom = { line: selectionStart.line, ch: beforeStartPos };
 			const newTo = { line: selectionEnd.line, ch: afterEndPos };
 			editor.setSelection(newFrom, newTo);
 			editor.replaceSelection(selection);
 			new Notice("Highlight removed.");
 		} else if (selection.startsWith('==') && selection.endsWith('==') && selection.length > 4) {
-			// Remove highlight markers from selection
 			const innerText = selection.slice(2, -2);
 			editor.replaceSelection(innerText);
 			new Notice("Highlight removed.");
 		} else {
-			// Add highlight markers
 			editor.replaceSelection(`==${selection}==`);
 			new Notice("Highlight added.");
 		}
 	}
 
-	// HIGH FIX: New method for multi-line selections
 	private handleMultiLineHighlight(
 		editor: Editor,
 		selection: string,
 		selectionStart: { line: number; ch: number },
 		selectionEnd: { line: number; ch: number }
 	): void {
-		// Check if selection contains highlight markers
 		const containsHighlightMarkers = selection.includes('==');
 
 		if (containsHighlightMarkers) {
-			// Check if entire selection is wrapped in markers
 			if (selection.startsWith('==') && selection.endsWith('==')) {
-				// Remove outer markers
 				const innerText = selection.slice(2, -2);
 				editor.replaceSelection(innerText);
 				new Notice("Highlight removed.");
 				return;
 			}
 
-			// Check if markers surround the selection (on first and last lines)
 			const firstLine = editor.getLine(selectionStart.line);
 			const lastLine = editor.getLine(selectionEnd.line);
 
@@ -719,7 +634,6 @@ export default class ReadingModeHighlighter extends Plugin {
 			const afterMarker = lastLine.substring(selectionEnd.ch, afterEndPos);
 
 			if (beforeMarker === '==' && afterMarker === '==') {
-				// Extend selection to include markers and remove them
 				const newFrom = { line: selectionStart.line, ch: beforeStartPos };
 				const newTo = { line: selectionEnd.line, ch: afterEndPos };
 				editor.setSelection(newFrom, newTo);
@@ -729,7 +643,6 @@ export default class ReadingModeHighlighter extends Plugin {
 			}
 		}
 
-		// Add highlight markers around entire selection
 		editor.replaceSelection(`==${selection}==`);
 		new Notice("Highlight added.");
 	}
@@ -742,7 +655,6 @@ export default class ReadingModeHighlighter extends Plugin {
 			metrics.highlightOperations;
 	}
 
-	// LOW FIX: Method to display performance metrics
 	private showPerformanceMetrics(): void {
 		const metrics = ReadingModeHighlighter.performanceMetrics;
 		const message = `Performance Metrics:
@@ -759,14 +671,12 @@ Cache Misses: ${metrics.cacheMisses}`;
 	}
 
 	private setupFloatingButton(): void {
-		// Create floating button element
 		this.floatingButton = document.createElement('div');
 		this.floatingButton.addClass('highlight-floating-button');
 		this.floatingButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>`;
 		this.floatingButton.style.display = 'none';
 		document.body.appendChild(this.floatingButton);
 
-		// Button click handler
 		this.floatingButton.addEventListener('click', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
@@ -777,27 +687,23 @@ Cache Misses: ${metrics.cacheMisses}`;
 			this.hideFloatingButton();
 		});
 
-		// Show button on text selection (mouseup)
 		this.registerDomEvent(document, 'mouseup', (evt: MouseEvent) => {
-			// Small delay to let selection complete
 			setTimeout(() => this.handleSelectionChange(evt), 10);
 		});
 
-		// Hide button when clicking elsewhere
 		this.registerDomEvent(document, 'mousedown', (evt: MouseEvent) => {
 			if (this.floatingButton && !this.floatingButton.contains(evt.target as Node)) {
 				this.hideFloatingButton();
 			}
 		});
 
-		// Handle touch events for mobile
 		this.registerDomEvent(document, 'touchend', (evt: TouchEvent) => {
 			setTimeout(() => {
 				const touch = evt.changedTouches[0];
 				if (touch) {
 					this.handleSelectionChange({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
 				}
-			}, 300); // Longer delay for mobile selection
+			}, 300);
 		});
 	}
 
@@ -815,25 +721,21 @@ Cache Misses: ${metrics.cacheMisses}`;
 			return;
 		}
 
-		// Get selection bounds
 		const range = selection.getRangeAt(0);
 		const rect = range.getBoundingClientRect();
 
-		// Position button above the selection
 		this.showFloatingButton(rect.left + rect.width / 2, rect.top - 10);
 	}
 
 	private showFloatingButton(x: number, y: number): void {
 		if (!this.floatingButton) return;
 
-		// Adjust position to keep button in viewport
 		const buttonWidth = 32;
 		const buttonHeight = 32;
 
 		let posX = x - buttonWidth / 2;
 		let posY = y - buttonHeight;
 
-		// Keep within viewport bounds
 		posX = Math.max(8, Math.min(posX, window.innerWidth - buttonWidth - 8));
 		posY = Math.max(8, posY);
 
@@ -849,13 +751,11 @@ Cache Misses: ${metrics.cacheMisses}`;
 	}
 
 	onunload(): void {
-		// Remove floating button
 		if (this.floatingButton) {
 			this.floatingButton.remove();
 			this.floatingButton = null;
 		}
 
-		// Clear all caches on plugin unload
 		RegexCache.clearCache();
 		ContextProcessor.clearCache();
 		HighlightDetector.clearCache();
