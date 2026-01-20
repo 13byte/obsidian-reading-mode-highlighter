@@ -197,6 +197,13 @@ class ContextProcessor {
 	static clearCache(): void {
 		this.contextCache.clear();
 	}
+
+	static clearCacheForFile(filePath: string): void {
+		// Clear all cache entries for a specific file
+		// Note: LRUCache doesn't expose keys(), so we clear all cache
+		// This is a limitation of the current cache implementation
+		this.contextCache.clear();
+	}
 }
 
 class HighlightDetector {
@@ -206,9 +213,12 @@ class HighlightDetector {
 		content: string,
 		selectedText: string,
 		positionInfo: PositionInfo,
-		filePath: string
+		filePath: string,
+		contentHash?: string
 	): boolean {
-		const cacheKey = `${filePath}:${selectedText}:${positionInfo.contextBefore}:${positionInfo.contextAfter}`;
+		// Include contentHash to prevent stale cache after file modifications
+		const hashSuffix = contentHash ? `:${contentHash}` : '';
+		const cacheKey = `${filePath}:${selectedText}:${positionInfo.contextBefore}:${positionInfo.contextAfter}${hashSuffix}`;
 
 		const cached = this.detectionCache.get(cacheKey);
 		if (cached !== undefined) {
@@ -241,6 +251,14 @@ class HighlightDetector {
 	}
 
 	static clearCache(): void {
+		this.detectionCache.clear();
+	}
+
+	static clearCacheForFile(filePath: string): void {
+		// Clear all cache entries for a specific file
+		const keysToDelete: string[] = [];
+		// Note: LRUCache doesn't expose keys(), so we clear all cache
+		// This is a limitation of the current cache implementation
 		this.detectionCache.clear();
 	}
 }
@@ -312,11 +330,8 @@ export default class ReadingModeHighlighter extends Plugin {
 
 		this.setupFloatingButton();
 
-		this.registerInterval(window.setInterval(() => {
-			RegexCache.clearCache();
-			ContextProcessor.clearCache();
-			HighlightDetector.clearCache();
-		}, 300000));
+		// Cache clearing is now handled after each file modification
+		// No need for aggressive periodic clearing
 	}
 
 	private executeHighlightCommand(): void {
@@ -383,7 +398,9 @@ export default class ReadingModeHighlighter extends Plugin {
 			const content = await this.app.vault.read(file);
 			const initialMtime = file.stat.mtime;
 
-			const isHighlighted = HighlightDetector.isHighlighted(content, selectedText, positionInfo, file.path);
+			// Use mtime as content hash to prevent stale cache
+			const contentHash = initialMtime.toString();
+			const isHighlighted = HighlightDetector.isHighlighted(content, selectedText, positionInfo, file.path, contentHash);
 
 			if (ReadingModeHighlighter.debugMode) {
 				console.log(`[ReadingModeHighlighter] Selected: "${selectedText}"`);
@@ -396,6 +413,11 @@ export default class ReadingModeHighlighter extends Plugin {
 				const currentFile = this.app.vault.getAbstractFileByPath(file.path);
 				if (currentFile instanceof TFile && currentFile.stat.mtime === initialMtime) {
 					await this.app.vault.modify(file, result.newContent);
+
+					// Critical: Clear all caches after file modification
+					HighlightDetector.clearCache();
+					ContextProcessor.clearCache();
+
 					new Notice(`Highlight ${result.action}.`);
 
 					if (view.previewMode) {
